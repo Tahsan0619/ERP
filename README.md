@@ -12,9 +12,6 @@ Modular web ERP documentation for mid-market trading, distribution, and light ma
 - `docs/tech.md` - technical direction
 - `docs/design.md` - UI design system and Stitch-ready prompts
 
-## Not in this repo
-The `UI-UX Mockup/` folder stays local only and is not pushed.
-
 ## Push session note
 All of this push was completed in **37 minutes**.
 
