@@ -60,18 +60,23 @@ export function DeliveryNotesPage() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     async function loadItems() {
       if (!soId) return
       const { data, error: qError } = await supabase
         .from('sales_order_items')
         .select('item_id, qty, delivered_qty, items(sku, name)')
         .eq('sales_order_id', soId)
+      if (cancelled) return
       if (qError) setError(qError.message)
       setSoItems((data as unknown as SOItem[]) ?? [])
       const so = orders.find((o) => o.id === soId)
       if (so?.warehouse_id) setWarehouseId(so.warehouse_id)
     }
     void loadItems()
+    return () => {
+      cancelled = true
+    }
   }, [soId, orders])
 
   async function onCreate(e: FormEvent) {

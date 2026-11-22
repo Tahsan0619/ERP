@@ -63,6 +63,9 @@ export function LoginPage() {
           {busy ? 'Signing in...' : 'Sign in'}
         </button>
         <p className="sub" style={{ marginTop: 16, marginBottom: 0 }}>
+          <Link to="/forgot-password">Forgot password</Link>
+        </p>
+        <p className="sub" style={{ marginTop: 8, marginBottom: 0 }}>
           New company? <Link to="/signup">Create account</Link>
         </p>
       </form>

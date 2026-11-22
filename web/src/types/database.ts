@@ -100,6 +100,18 @@ export type Database = {
         Args: Record<string, never>
         Returns: string
       }
+      next_doc_number: {
+        Args: { p_tenant_id: string; p_doc_type: string }
+        Returns: string
+      }
+      post_credit_note: {
+        Args: { p_credit_note_id: string }
+        Returns: string
+      }
+      post_debit_note: {
+        Args: { p_debit_note_id: string }
+        Returns: string
+      }
     }
   }
 }

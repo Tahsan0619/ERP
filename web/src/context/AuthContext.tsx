@@ -16,6 +16,7 @@ type AuthState = {
   user: User | null
   profile: Profile | null
   loading: boolean
+  profileLoading: boolean
   refreshProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signUp: (
@@ -24,6 +25,7 @@ type AuthState = {
     fullName: string,
     companyName: string,
   ) => Promise<{ error: string | null }>
+  completeSetup: (companyName: string, fullName: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
 }
 
@@ -33,6 +35,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [profileLoading, setProfileLoading] = useState(false)
 
   const refreshProfile = useCallback(async () => {
     const { data: userData } = await supabase.auth.getUser()
@@ -41,6 +44,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setProfile(null)
       return
     }
+    setProfileLoading(true)
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -49,9 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) {
       console.error(error)
       setProfile(null)
-      return
+    } else {
+      setProfile(data)
     }
-    setProfile(data)
+    setProfileLoading(false)
   }, [])
 
   useEffect(() => {
@@ -78,6 +83,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void refreshProfile()
   }, [session, refreshProfile])
 
+  const runBootstrap = useCallback(async (companyName: string, fullName: string) => {
+    const { error: bootError } = await supabase.rpc('bootstrap_tenant', {
+      p_tenant_name: companyName,
+      p_full_name: fullName,
+    })
+    if (bootError) {
+      await supabase.auth.signOut()
+      setProfile(null)
+      return { error: bootError.message }
+    }
+    await refreshProfile()
+    return { error: null }
+  }, [refreshProfile])
+
   const signIn = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     return { error: error?.message ?? null }
@@ -93,15 +112,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             'Account created. Confirm email if required, then sign in to finish company setup.',
         }
       }
-      const { error: bootError } = await supabase.rpc('bootstrap_tenant', {
-        p_tenant_name: companyName,
-        p_full_name: fullName,
-      })
-      if (bootError) return { error: bootError.message }
-      await refreshProfile()
-      return { error: null }
+      return runBootstrap(companyName, fullName)
     },
-    [refreshProfile],
+    [runBootstrap],
+  )
+
+  const completeSetup = useCallback(
+    async (companyName: string, fullName: string) => runBootstrap(companyName, fullName),
+    [runBootstrap],
   )
 
   const signOut = useCallback(async () => {
@@ -115,12 +133,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user: session?.user ?? null,
       profile,
       loading,
+      profileLoading,
       refreshProfile,
       signIn,
       signUp,
+      completeSetup,
       signOut,
     }),
-    [session, profile, loading, refreshProfile, signIn, signUp, signOut],
+    [session, profile, loading, profileLoading, refreshProfile, signIn, signUp, completeSetup, signOut],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

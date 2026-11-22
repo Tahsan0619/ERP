@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
 import { nextDocNo } from '../lib/numbering'
+import { Link } from 'react-router-dom'
 import { StatusChip } from '../components/StatusChip'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
 
 type SO = {
   id: string
@@ -39,23 +41,40 @@ export function SalesInvoicesPage() {
   const [soId, setSoId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('')
 
   async function load() {
+    const dnRes = await supabase
+      .from('delivery_notes')
+      .select('sales_order_id')
+      .eq('status', 'posted')
+    const postedSoIds = [...new Set((dnRes.data ?? []).map((d) => d.sales_order_id as string))]
+
+    let soQuery = supabase
+      .from('sales_orders')
+      .select('id, doc_no, customer_id, grand_total, customers(name)')
+      .order('created_at', { ascending: false })
+    if (postedSoIds.length > 0) {
+      soQuery = soQuery.or(
+        `status.in.(partially_delivered,delivered),id.in.(${postedSoIds.join(',')})`,
+      )
+    } else {
+      soQuery = soQuery.in('status', ['partially_delivered', 'delivered'])
+    }
+
     const [soRes, invRes] = await Promise.all([
-      supabase
-        .from('sales_orders')
-        .select('id, doc_no, customer_id, grand_total, customers(name)')
-        .in('status', ['submitted', 'partially_delivered', 'delivered', 'draft'])
-        .order('created_at', { ascending: false }),
+      soQuery,
       supabase
         .from('sales_invoices')
         .select('id, doc_no, status, invoice_date, grand_total, amount_paid, customers:customer_id(name)')
         .order('created_at', { ascending: false }),
     ])
     if (soRes.error) setError(soRes.error.message)
+    if (invRes.error) setError(invRes.error.message)
     setOrders((soRes.data as unknown as SO[]) ?? [])
     setRows((invRes.data as unknown as Invoice[]) ?? [])
     if (!soId && soRes.data?.[0]) setSoId(soRes.data[0].id)
+    if (invRes.data?.[0]) setSelectedInvoiceId((prev) => prev || invRes.data![0].id)
   }
 
   useEffect(() => {
@@ -162,11 +181,17 @@ export function SalesInvoicesPage() {
                   <th>Status</th>
                   <th className="num">Total</th>
                   <th className="num">Paid</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={row.id === selectedInvoiceId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedInvoiceId(row.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.customers?.name ?? '-'}</td>
                     <td>{row.invoice_date}</td>
@@ -175,10 +200,16 @@ export function SalesInvoicesPage() {
                     </td>
                     <td className="num">{Number(row.grand_total).toFixed(2)}</td>
                     <td className="num">{Number(row.amount_paid).toFixed(2)}</td>
+                    <td>
+                      <Link className="btn btn-secondary" to={`/print/invoice/${row.id}`} target="_blank">
+                        Print
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedInvoiceId ? <AttachmentsPanel entityType="sales_invoice" entityId={selectedInvoiceId} /> : null}
           </div>
         </div>
       </div>

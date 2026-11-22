@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export function SignupPage() {
-  const { session, signUp } = useAuth()
+  const { session, profile, signUp } = useAuth()
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
   const [companyName, setCompanyName] = useState('')
@@ -13,7 +13,7 @@ export function SignupPage() {
   const [info, setInfo] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
-  if (session) return <Navigate to="/" replace />
+  if (session && profile) return <Navigate to="/" replace />
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()

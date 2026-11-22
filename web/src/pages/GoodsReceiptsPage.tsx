@@ -60,18 +60,23 @@ export function GoodsReceiptsPage() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     async function loadItems() {
       if (!poId) return
       const { data, error: qError } = await supabase
         .from('purchase_order_items')
         .select('item_id, qty, received_qty, rate, items(sku, name)')
         .eq('purchase_order_id', poId)
+      if (cancelled) return
       if (qError) setError(qError.message)
       setPoItems((data as unknown as POItem[]) ?? [])
       const po = pos.find((p) => p.id === poId)
       if (po?.warehouse_id) setWarehouseId(po.warehouse_id)
     }
     void loadItems()
+    return () => {
+      cancelled = true
+    }
   }, [poId, pos])
 
   async function onCreate(e: FormEvent) {

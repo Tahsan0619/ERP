@@ -41,6 +41,24 @@ export function SalesOrdersPage() {
     void load()
   }, [])
 
+  async function onSubmitOrder(orderId: string) {
+    setBusy(true)
+    setError(null)
+    try {
+      const { error: updError } = await supabase
+        .from('sales_orders')
+        .update({ status: 'submitted' })
+        .eq('id', orderId)
+        .eq('status', 'draft')
+      if (updError) throw updError
+      await load()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to submit order')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !customerId || !itemId) return
@@ -147,6 +165,7 @@ export function SalesOrdersPage() {
                   <th>Date</th>
                   <th>Status</th>
                   <th className="num">Total</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -159,6 +178,18 @@ export function SalesOrdersPage() {
                       <StatusChip status={row.status} />
                     </td>
                     <td className="num">{Number(row.grand_total).toFixed(2)}</td>
+                    <td>
+                      {row.status === 'draft' ? (
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void onSubmitOrder(row.id)}
+                        >
+                          Submit
+                        </button>
+                      ) : null}
+                    </td>
                   </tr>
                 ))}
               </tbody>
