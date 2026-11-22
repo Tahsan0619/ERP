@@ -1,6 +1,5 @@
-# UI/UX must not be pushed
+# UI/UX mockups must not be pushed (design.md is allowed)
 UI-UX Mockup/
-docs/design.md
 
 # OS / editor
 .DS_Store
