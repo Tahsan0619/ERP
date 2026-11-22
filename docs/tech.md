@@ -1,48 +1,67 @@
 # Technical Direction
 
 ## 1. Purpose
-Capture technical approach and non-functional requirements for BusinessOS ERP. This is direction, not a final architecture freeze.
+Capture the locked technical approach and non-functional requirements for BusinessOS ERP.
 
-## 2. Architecture principles
-1. Modular monolith first, with clear module boundaries
+## 2. Required technology (mandatory)
+These are required. Do not substitute.
+
+| Layer | Required choice | Notes |
+|-------|-----------------|-------|
+| Frontend | React + TypeScript | Vite SPA |
+| Backend and database | Supabase | Postgres, Auth, Storage, Row Level Security, Edge Functions when needed |
+
+### Stack rules
+1. React + TypeScript is mandatory for the UI
+2. Supabase is mandatory for database and backend services
+3. Do not introduce a separate NestJS/.NET/Express primary backend unless a rare edge case needs an Edge Function or worker
+4. Business data lives in Supabase Postgres
+5. Auth uses Supabase Auth
+6. File attachments use Supabase Storage
+7. Access control uses Supabase RLS plus app role checks
+
+## 3. Architecture principles
+1. Modular frontend with clear module folders
 2. Tenant-aware data model from day one
-3. Document posting engine shared by inventory and finance
-4. Permission checks on every API
-5. Prefer simple reliable patterns over premature microservices
+3. Document posting rules enforced in Postgres functions/transactions where critical
+4. Permission checks via RLS and role tables
+5. Prefer Supabase primitives over custom servers
 6. Auditability over silent side effects
+7. No secrets in git (use `.env` locally only)
 
-## 3. Recommended stack (default proposal)
-| Layer | Proposal | Notes |
-|-------|----------|-------|
-| Frontend | React + TypeScript | Responsive web app |
-| Backend API | Node.js (NestJS) or .NET API | Choose one and stay consistent |
-| Database | PostgreSQL | Relational source of truth |
-| Cache/session | Redis | Sessions, short-lived locks, queues later |
-| File storage | S3-compatible object storage | Attachments and PDFs |
-| Auth | JWT/session cookies + RBAC | Secure HTTP-only cookies preferred for web |
-| PDF/export | Server-side generators | Invoices, POs, reports |
-| Hosting | Containerized web + API + DB | Single-region first |
+## 4. Locked implementation stack
+| Layer | Choice |
+|-------|--------|
+| UI | React + TypeScript (Vite) |
+| Routing | React Router |
+| Styling | CSS variables from design.md (Operational Clear) |
+| Backend | Supabase |
+| Database | Supabase Postgres |
+| Auth | Supabase Auth (email/password) |
+| Storage | Supabase Storage |
+| Client SDK | `@supabase/supabase-js` |
+| Hosting (app) | Vite static host / any SPA host |
+| Hosting (data) | Supabase project |
 
-Final stack choice should be locked before sprint 1 coding.
+## 5. High-level system shape
+1. React web client
+2. Supabase Auth session
+3. Supabase Postgres domain tables
+4. RLS policies per tenant/role
+5. Shared kernel tables: identity mapping, tenancy, numbering, attachments, audit
+6. Domain modules: sales, purchase, inventory, finance, admin (HR later)
+7. Supabase Storage for attachments and generated PDFs
+8. Optional Edge Functions for heavy posting or exports later
 
-## 4. High-level system shape
-1. Web client
-2. API gateway / API app
-3. Domain modules: sales, purchase, inventory, finance, HR, admin
-4. Shared kernel: identity, tenancy, numbering, attachments, audit, notifications
-5. PostgreSQL primary datastore
-6. Object storage for files
-7. Background worker for emails, heavy reports, payroll jobs later
-
-## 5. Multi-tenancy
-1. Every business record includes tenant_id
+## 6. Multi-tenancy
+1. Every business record includes `tenant_id`
 2. All queries are tenant-scoped
-3. Cross-tenant access is impossible through normal APIs
+3. RLS blocks cross-tenant reads/writes
 4. Bootstrap admin exists per tenant
-5. Shared app, isolated data rows first; dedicated DB per tenant later if needed
+5. Shared Supabase project with row isolation first
 
-## 6. Core domain objects (logical)
-1. User, Role, Permission
+## 7. Core domain objects (logical)
+1. User profile, Role, Permission
 2. Company, Branch, Warehouse
 3. Item, UOM, Item Group
 4. Customer, Vendor
@@ -53,53 +72,54 @@ Final stack choice should be locked before sprint 1 coding.
 9. Employee, Attendance, Leave, Payroll Run (later)
 10. Audit Event, Attachment, Notification
 
-## 7. Posting engine requirements
+## 8. Posting engine requirements
 1. Draft -> Submitted/Posted state machine
 2. Posted documents immutable
 3. Reverse or amend creates linked compensating documents
-4. Inventory and GL postings happen in one transactional unit where required
+4. Inventory and GL postings happen in one DB transaction where required
 5. Idempotent submit operations
 6. Strong validation before post (balances, stock qty, permissions, period open)
+7. Prefer Postgres functions/RPCs for multi-table posting
 
-## 8. API requirements
-1. Versioned REST APIs first
-2. Consistent list filters: date, status, party, warehouse, text search
-3. Pagination on all list endpoints
-4. Clear error codes for permission, validation, conflict, period lock
-5. OpenAPI documentation maintained
-6. Webhooks deferred to Phase 3 unless a must-have integration appears
+## 9. API approach on Supabase
+1. Primary data access through Supabase client (table queries and RPCs)
+2. Consistent filters: date, status, party, warehouse, text search
+3. Pagination on all list queries
+4. Clear DB/RPC error mapping in the UI
+5. Edge Functions only when client-side or RLS alone is insufficient
+6. External webhooks deferred to Phase 3
 
-## 9. Non-functional requirements
+## 10. Non-functional requirements
 | Area | Target |
 |------|--------|
-| Availability | 99.5% monthly for MVP hosting |
+| Availability | Rely on Supabase project SLA plus app host |
 | API p95 latency | Under 500 ms for standard CRUD |
 | Report p95 | Under 5 s for common operational reports |
-| Security | RBAC, TLS, password hashing, audit logs |
-| Backup | Daily automated DB backups, tested restore |
+| Security | Supabase Auth, RLS, role tables, audit logs |
+| Backup | Supabase backups plus export routines |
 | Scalability | Support 50 concurrent users per tenant initially |
 | Data retention | Soft-delete/archive masters; retain financial docs per policy |
 | Accessibility | Keyboard usable core forms, readable contrast |
 | Browser support | Latest Chrome, Edge, Firefox; Safari current |
 
-## 10. Security requirements
-1. Hash passwords with a modern algorithm (bcrypt/argon2)
-2. Least-privilege roles
-3. CSRF protections if cookie sessions used
-4. Rate-limit auth endpoints
-5. Attachment type/size limits and malware scanning plan
-6. No secrets in source control
+## 11. Security requirements
+1. Use Supabase Auth password hashing (do not roll custom auth)
+2. Least-privilege roles with RLS
+3. Publishable key only in the web client
+4. Service role key never in the frontend or git
+5. Attachment type/size limits
+6. No secrets in source control (`supabasecreds.md`, `.env` ignored)
 7. Admin actions fully audited
 8. 2FA in Phase 3
 
-## 11. Data and valuation rules (MVP)
+## 12. Data and valuation rules (MVP)
 1. Moving average valuation for stock items
 2. Service items do not create stock ledger rows
 3. Tax calculated at document line/header according to template
 4. Foreign currency allowed with exchange rate on document date
 5. Rounding rules documented and consistent across modules
 
-## 12. Integration direction
+## 13. Integration direction
 ### MVP
 1. CSV import for opening customers, vendors, items, opening stock
 2. CSV/Excel export for reports
@@ -107,47 +127,41 @@ Final stack choice should be locked before sprint 1 coding.
 ### Later
 1. Banking statement import
 2. Email gateway for documents and alerts
-3. Accounting export adapters if customers keep external GL temporarily
-4. SMS/WhatsApp notifications optional
-5. E-invoice statutory adapters by country pack
+3. SMS/WhatsApp notifications optional
+4. E-invoice statutory adapters by country pack
 
-## 13. Environments
-1. Local development
-2. Staging
-3. Production
-4. Separate secrets and databases per environment
-5. Migration scripts required for every schema change
+## 14. Environments
+1. Local development against the Supabase project
+2. Staging project or separate schemas later if needed
+3. Production Supabase project
+4. Separate env files per machine/environment
+5. SQL migrations versioned in `supabase/migrations`
 
-## 14. Testing strategy
-1. Unit tests for posting, tax, valuation, permissions
-2. Integration tests for order-to-cash and procure-to-pay
+## 15. Testing strategy
+1. Unit tests for tax, valuation helpers, permission helpers
+2. Integration tests against Supabase for order-to-cash and procure-to-pay
 3. End-to-end smoke tests for login and core docs
 4. Regression pack before period-close related releases
-5. Load smoke for list and post endpoints before go-live
 
-## 15. Observability
-1. Structured application logs
-2. Error tracking
-3. Metrics for API latency and queue lag
-4. Audit trail separate from debug logs
-5. Health checks for API and worker
+## 16. Observability
+1. Frontend error boundary + logging
+2. Supabase logs for Auth, DB, Storage
+3. Audit trail table separate from debug logs
 
-## 16. Delivery plan alignment
+## 17. Delivery plan alignment
 | Phase | Technical focus |
 |-------|-----------------|
-| Phase 1 MVP | Auth, tenancy, masters, sales, purchase, inventory, finance posting, reports |
+| Phase 1 MVP | Auth, tenancy, masters, sales, purchase, inventory, finance posting, reports on React + Supabase |
 | Phase 2 | Approvals, batches/serials, bank recon, manufacturing light, HR core |
 | Phase 3 | Payroll jobs, portals, consolidation, 2FA, bank APIs, analytics |
 
-## 17. Open technical decisions
-1. NestJS vs .NET for API
-2. Monorepo vs separate frontend/backend repos
-3. SSR vs SPA hosting model
-4. Exact attachment scanning toolchain
-5. Whether background worker is required in MVP or can wait for Phase 2
+## 18. Open decisions (non-stack)
+1. Exact attachment scanning toolchain
+2. Whether Edge Functions are required in MVP posting paths
+3. SPA host provider (Vercel/Netlify/static host)
 
-## 18. Acceptance criteria
-1. Stack choice documented before feature coding starts
-2. Tenant isolation proven by automated tests
-3. Posting engine transactional integrity proven for sales and purchase flows
-4. Backup and restore rehearsed once before production launch
+## 19. Acceptance criteria
+1. Stack is React + TypeScript + Supabase only for core product paths
+2. Tenant isolation proven by RLS tests
+3. Posting integrity proven for sales and purchase flows
+4. No service-role or access tokens committed to git
