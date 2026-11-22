@@ -48,9 +48,15 @@ function CompleteSetupCard() {
   )
 }
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { session, profile, loading, profileLoading } = useAuth()
-  if (loading || (session && profileLoading && !profile)) {
+export function ProtectedRoute({
+  children,
+  allowWithoutProfile = false,
+}: {
+  children: React.ReactNode
+  allowWithoutProfile?: boolean
+}) {
+  const { session, profile, loading, profileLoading, profileChecked } = useAuth()
+  if (loading || (session && !allowWithoutProfile && (!profileChecked || profileLoading))) {
     return (
       <div className="auth-page">
         <div className="auth-card">Loading session...</div>
@@ -58,6 +64,6 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
     )
   }
   if (!session) return <Navigate to="/login" replace />
-  if (!profile) return <CompleteSetupCard />
+  if (!allowWithoutProfile && !profile) return <CompleteSetupCard />
   return children
 }

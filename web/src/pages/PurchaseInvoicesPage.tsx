@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
+import { errorMessage } from '../lib/errors'
 
 type PO = {
   id: string
@@ -34,9 +38,11 @@ type POItem = {
 
 export function PurchaseInvoicesPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [orders, setOrders] = useState<PO[]>([])
   const [rows, setRows] = useState<Invoice[]>([])
   const [poId, setPoId] = useState('')
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -56,6 +62,7 @@ export function PurchaseInvoicesPage() {
     setOrders((poRes.data as unknown as PO[]) ?? [])
     setRows((invRes.data as unknown as Invoice[]) ?? [])
     if (!poId && poRes.data?.[0]) setPoId(poRes.data[0].id)
+    if (!selectedInvoiceId && invRes.data?.[0]) setSelectedInvoiceId((invRes.data as unknown as Invoice[])[0].id)
   }
 
   useEffect(() => {
@@ -65,6 +72,10 @@ export function PurchaseInvoicesPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !poId) return
+    if (!can('purchase.post')) {
+      setError('Missing purchase.post permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -79,6 +90,8 @@ export function PurchaseInvoicesPage() {
       if (items.length === 0) throw new Error('Purchase order has no lines')
 
       const subtotal = items.reduce((s, l) => s + Number(l.amount), 0)
+      const taxAmount = items.reduce((s, l) => s + (Number(l.amount) * Number(l.tax_rate)) / 100, 0)
+      const grandTotal = subtotal + taxAmount
       const docNo = await nextDocNo(profile.tenant_id, 'purchase_invoice')
       const { data: inv, error: invError } = await supabase
         .from('purchase_invoices')
@@ -90,9 +103,9 @@ export function PurchaseInvoicesPage() {
           purchase_order_id: poId,
           invoice_date: new Date().toISOString().slice(0, 10),
           subtotal,
-          tax_amount: 0,
+          tax_amount: taxAmount,
           discount_amount: 0,
-          grand_total: subtotal,
+          grand_total: grandTotal,
           created_by: profile.id,
         })
         .select('id')
@@ -119,7 +132,7 @@ export function PurchaseInvoicesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post purchase invoice')
+      setError(errorMessage(err, 'Failed to post purchase invoice'))
     } finally {
       setBusy(false)
     }
@@ -147,7 +160,7 @@ export function PurchaseInvoicesPage() {
               ))}
             </select>
           </div>
-          <button className="btn btn-primary" disabled={busy || orders.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || orders.length === 0 || !can('purchase.post')} type="submit">
             {busy ? 'Posting...' : 'Create and post bill'}
           </button>
         </form>
@@ -162,11 +175,12 @@ export function PurchaseInvoicesPage() {
                   <th>Status</th>
                   <th className="num">Total</th>
                   <th className="num">Paid</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} onClick={() => setSelectedInvoiceId(row.id)} style={{ cursor: 'pointer' }}>
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.vendors?.name ?? '-'}</td>
                     <td>{row.invoice_date}</td>
@@ -175,10 +189,14 @@ export function PurchaseInvoicesPage() {
                     </td>
                     <td className="num">{Number(row.grand_total).toFixed(2)}</td>
                     <td className="num">{Number(row.amount_paid).toFixed(2)}</td>
+                    <td>
+                      <PrintLink type="purchase_invoice" id={row.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedInvoiceId ? <AttachmentsPanel entityType="purchase_invoice" entityId={selectedInvoiceId} /> : null}
           </div>
         </div>
       </div>

@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
+import { errorMessage } from '../lib/errors'
 
 type SO = {
   id: string
@@ -25,6 +29,7 @@ type SOItem = { item_id: string; qty: number; delivered_qty: number; items?: { s
 
 export function DeliveryNotesPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [orders, setOrders] = useState<SO[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [soItems, setSoItems] = useState<SOItem[]>([])
@@ -33,6 +38,7 @@ export function DeliveryNotesPage() {
   const [warehouseId, setWarehouseId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedId, setSelectedId] = useState('')
 
   async function load() {
     const [soRes, whRes, dnRes] = await Promise.all([
@@ -51,6 +57,7 @@ export function DeliveryNotesPage() {
     setOrders((soRes.data as unknown as SO[]) ?? [])
     setWarehouses(whRes.data ?? [])
     setRows((dnRes.data as unknown as DN[]) ?? [])
+    if (dnRes.data?.[0]) setSelectedId((prev) => prev || dnRes.data![0].id)
     if (!soId && soRes.data?.[0]) setSoId(soRes.data[0].id)
     if (!warehouseId && whRes.data?.[0]) setWarehouseId(whRes.data[0].id)
   }
@@ -82,9 +89,40 @@ export function DeliveryNotesPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !soId || !warehouseId) return
+    if (!can('sales.post')) {
+      setError('Missing sales.post permission')
+      return
+    }
     const openLines = soItems.filter((l) => Number(l.qty) - Number(l.delivered_qty) > 0)
     if (openLines.length === 0) {
       setError('No open quantities left on this sales order')
+      return
+    }
+    const itemIds = openLines.map((l) => l.item_id)
+    const { data: balances, error: balError } = await supabase
+      .from('stock_balances')
+      .select('item_id, qty_on_hand')
+      .eq('warehouse_id', warehouseId)
+      .in('item_id', itemIds)
+    if (balError) {
+      setError(balError.message)
+      return
+    }
+    const balMap = new Map((balances ?? []).map((b) => [b.item_id, Number(b.qty_on_hand)]))
+    const shortfalls = openLines.filter((l) => {
+      const need = Number(l.qty) - Number(l.delivered_qty)
+      const onHand = balMap.get(l.item_id) ?? 0
+      return onHand < need
+    })
+    if (shortfalls.length > 0) {
+      const msg = shortfalls
+        .map((l) => {
+          const need = Number(l.qty) - Number(l.delivered_qty)
+          const onHand = balMap.get(l.item_id) ?? 0
+          return `${l.items?.sku ?? l.item_id}: need ${need}, on hand ${onHand}`
+        })
+        .join('; ')
+      setError(`Insufficient stock in selected warehouse — ${msg}. Receive goods (GRN) or run stock adjustment first.`)
       return
     }
     setBusy(true)
@@ -121,7 +159,7 @@ export function DeliveryNotesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post delivery note')
+      setError(errorMessage(err, 'Failed to post delivery note'))
     } finally {
       setBusy(false)
     }
@@ -179,7 +217,7 @@ export function DeliveryNotesPage() {
               </tbody>
             </table>
           </div>
-          <button className="btn btn-primary" disabled={busy || orders.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || orders.length === 0 || !can('sales.post')} type="submit">
             {busy ? 'Posting...' : 'Create and post delivery'}
           </button>
         </form>
@@ -192,21 +230,31 @@ export function DeliveryNotesPage() {
                   <th>Customer</th>
                   <th>Date</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={row.id === selectedId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedId(row.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.customers?.name ?? '-'}</td>
                     <td>{row.posting_date}</td>
                     <td>
                       <StatusChip status={row.status} />
                     </td>
+                    <td>
+                      <PrintLink type="delivery_note" id={row.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedId ? <AttachmentsPanel entityType="delivery_note" entityId={selectedId} /> : null}
           </div>
         </div>
       </div>

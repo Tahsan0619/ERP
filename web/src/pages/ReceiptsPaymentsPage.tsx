@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
+import { errorMessage } from '../lib/errors'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
 import type { Customer, Vendor } from '../types/database'
 
 type Receipt = {
@@ -25,6 +29,7 @@ type Payment = {
 
 export function ReceiptsPaymentsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [receipts, setReceipts] = useState<Receipt[]>([])
@@ -35,6 +40,8 @@ export function ReceiptsPaymentsPage() {
   const [paymentAmount, setPaymentAmount] = useState('0')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedReceiptId, setSelectedReceiptId] = useState('')
+  const [selectedPaymentId, setSelectedPaymentId] = useState('')
 
   async function load() {
     const [cRes, vRes, rRes, pRes] = await Promise.all([
@@ -53,6 +60,8 @@ export function ReceiptsPaymentsPage() {
     setVendors(vRes.data ?? [])
     setReceipts((rRes.data as unknown as Receipt[]) ?? [])
     setPayments((pRes.data as unknown as Payment[]) ?? [])
+    if (rRes.data?.[0]) setSelectedReceiptId((prev) => prev || rRes.data![0].id)
+    if (pRes.data?.[0]) setSelectedPaymentId((prev) => prev || pRes.data![0].id)
     if (!customerId && cRes.data?.[0]) setCustomerId(cRes.data[0].id)
     if (!vendorId && vRes.data?.[0]) setVendorId(vRes.data[0].id)
   }
@@ -87,6 +96,10 @@ export function ReceiptsPaymentsPage() {
       setError('Receipt amount must be greater than zero')
       return
     }
+    if (!can('finance.post')) {
+      setError('Missing finance.post permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -114,7 +127,7 @@ export function ReceiptsPaymentsPage() {
       setReceiptAmount('0')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post receipt')
+      setError(errorMessage(err, 'Failed to post receipt'))
     } finally {
       setBusy(false)
     }
@@ -126,6 +139,10 @@ export function ReceiptsPaymentsPage() {
     const amt = Number(paymentAmount)
     if (amt <= 0) {
       setError('Payment amount must be greater than zero')
+      return
+    }
+    if (!can('finance.post')) {
+      setError('Missing finance.post permission')
       return
     }
     setBusy(true)
@@ -156,7 +173,7 @@ export function ReceiptsPaymentsPage() {
       setPaymentAmount('0')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post payment')
+      setError(errorMessage(err, 'Failed to post payment'))
     } finally {
       setBusy(false)
     }
@@ -196,7 +213,7 @@ export function ReceiptsPaymentsPage() {
               required
             />
           </div>
-          <button className="btn btn-primary" disabled={busy || customers.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || customers.length === 0 || !can('finance.post')} type="submit">
             {busy ? 'Posting...' : 'Post receipt'}
           </button>
           <div className="table-wrap" style={{ marginTop: 16 }}>
@@ -207,21 +224,33 @@ export function ReceiptsPaymentsPage() {
                   <th>Customer</th>
                   <th>Status</th>
                   <th className="num">Amount</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {receipts.map((r) => (
-                  <tr key={r.id}>
+                  <tr
+                    key={r.id}
+                    className={r.id === selectedReceiptId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedReceiptId(r.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{r.doc_no}</td>
                     <td>{r.customers?.name ?? '-'}</td>
                     <td>
                       <StatusChip status={r.status} />
                     </td>
                     <td className="num">{Number(r.amount).toFixed(2)}</td>
+                    <td>
+                      <PrintLink type="receipt" id={r.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedReceiptId ? (
+              <AttachmentsPanel entityType="receipt_entry" entityId={selectedReceiptId} />
+            ) : null}
           </div>
         </form>
 
@@ -249,7 +278,7 @@ export function ReceiptsPaymentsPage() {
               required
             />
           </div>
-          <button className="btn btn-primary" disabled={busy || vendors.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || vendors.length === 0 || !can('finance.post')} type="submit">
             {busy ? 'Posting...' : 'Post payment'}
           </button>
           <div className="table-wrap" style={{ marginTop: 16 }}>
@@ -260,21 +289,33 @@ export function ReceiptsPaymentsPage() {
                   <th>Vendor</th>
                   <th>Status</th>
                   <th className="num">Amount</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {payments.map((p) => (
-                  <tr key={p.id}>
+                  <tr
+                    key={p.id}
+                    className={p.id === selectedPaymentId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedPaymentId(p.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{p.doc_no}</td>
                     <td>{p.vendors?.name ?? '-'}</td>
                     <td>
                       <StatusChip status={p.status} />
                     </td>
                     <td className="num">{Number(p.amount).toFixed(2)}</td>
+                    <td>
+                      <PrintLink type="payment" id={p.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedPaymentId ? (
+              <AttachmentsPanel entityType="payment_entry" entityId={selectedPaymentId} />
+            ) : null}
           </div>
         </form>
       </div>

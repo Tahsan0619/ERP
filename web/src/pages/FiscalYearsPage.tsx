@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 
 type FiscalYear = {
   id: string
@@ -12,6 +13,7 @@ type FiscalYear = {
 
 export function FiscalYearsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [rows, setRows] = useState<FiscalYear[]>([])
   const [name, setName] = useState('')
   const [startDate, setStartDate] = useState('')
@@ -35,6 +37,10 @@ export function FiscalYearsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('fiscal_years').insert({
@@ -56,6 +62,10 @@ export function FiscalYearsPage() {
   }
 
   async function toggleLock(id: string, isClosed: boolean) {
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: updError } = await supabase
@@ -64,6 +74,21 @@ export function FiscalYearsPage() {
       .eq('id', id)
     setBusy(false)
     if (updError) setError(updError.message)
+    else await load()
+  }
+
+  async function closePeriod(id: string) {
+    if (!can('finance.post') && !can('admin.settings')) {
+      setError('Missing finance.post permission')
+      return
+    }
+    setBusy(true)
+    setError(null)
+    const { error: closeError } = await supabase.rpc('close_fiscal_year', {
+      p_fiscal_year_id: id,
+    })
+    setBusy(false)
+    if (closeError) setError(closeError.message)
     else await load()
   }
 
@@ -91,7 +116,7 @@ export function FiscalYearsPage() {
             <label htmlFor="end">End date</label>
             <input id="end" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             Save
           </button>
         </form>
@@ -115,14 +140,26 @@ export function FiscalYearsPage() {
                     <td>{row.end_date}</td>
                     <td>{row.is_closed ? 'Locked' : 'Open'}</td>
                     <td>
-                      <button
-                        className="btn btn-secondary"
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void toggleLock(row.id, !row.is_closed)}
-                      >
-                        {row.is_closed ? 'Unlock' : 'Lock'}
-                      </button>
+                      <div className="toolbar">
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          disabled={busy || !can('admin.settings')}
+                          onClick={() => void toggleLock(row.id, !row.is_closed)}
+                        >
+                          {row.is_closed ? 'Unlock' : 'Lock only'}
+                        </button>
+                        {!row.is_closed ? (
+                          <button
+                            className="btn btn-primary"
+                            type="button"
+                            disabled={busy || (!can('finance.post') && !can('admin.settings'))}
+                            onClick={() => void closePeriod(row.id)}
+                          >
+                            Period close + RE JV
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}

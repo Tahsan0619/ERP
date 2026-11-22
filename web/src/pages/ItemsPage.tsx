@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import type { Item } from '../types/database'
 
 export function ItemsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [rows, setRows] = useState<Item[]>([])
   const [error, setError] = useState<string | null>(null)
   const [sku, setSku] = useState('')
@@ -28,6 +30,10 @@ export function ItemsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('items').insert({
@@ -79,7 +85,7 @@ export function ItemsPage() {
               onChange={(e) => setRate(e.target.value)}
             />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             {busy ? 'Saving...' : 'Save item'}
           </button>
         </form>

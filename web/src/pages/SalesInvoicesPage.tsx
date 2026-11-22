@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
-import { Link } from 'react-router-dom'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
 import { AttachmentsPanel } from '../components/AttachmentsPanel'
+import { errorMessage } from '../lib/errors'
 
 type SO = {
   id: string
@@ -36,6 +38,7 @@ type SOItem = {
 
 export function SalesInvoicesPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [orders, setOrders] = useState<SO[]>([])
   const [rows, setRows] = useState<Invoice[]>([])
   const [soId, setSoId] = useState('')
@@ -84,6 +87,10 @@ export function SalesInvoicesPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !soId) return
+    if (!can('sales.post')) {
+      setError('Missing sales.post permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -98,6 +105,8 @@ export function SalesInvoicesPage() {
       if (items.length === 0) throw new Error('Sales order has no lines')
 
       const subtotal = items.reduce((s, l) => s + Number(l.amount), 0)
+      const taxAmount = items.reduce((s, l) => s + (Number(l.amount) * Number(l.tax_rate)) / 100, 0)
+      const grandTotal = subtotal + taxAmount
       const docNo = await nextDocNo(profile.tenant_id, 'sales_invoice')
       const { data: inv, error: invError } = await supabase
         .from('sales_invoices')
@@ -109,9 +118,9 @@ export function SalesInvoicesPage() {
           sales_order_id: soId,
           invoice_date: new Date().toISOString().slice(0, 10),
           subtotal,
-          tax_amount: 0,
+          tax_amount: taxAmount,
           discount_amount: 0,
-          grand_total: subtotal,
+          grand_total: grandTotal,
           created_by: profile.id,
         })
         .select('id')
@@ -138,7 +147,7 @@ export function SalesInvoicesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post sales invoice')
+      setError(errorMessage(err, 'Failed to post sales invoice'))
     } finally {
       setBusy(false)
     }
@@ -166,7 +175,7 @@ export function SalesInvoicesPage() {
               ))}
             </select>
           </div>
-          <button className="btn btn-primary" disabled={busy || orders.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || orders.length === 0 || !can('sales.post')} type="submit">
             {busy ? 'Posting...' : 'Create and post invoice'}
           </button>
         </form>
@@ -201,9 +210,7 @@ export function SalesInvoicesPage() {
                     <td className="num">{Number(row.grand_total).toFixed(2)}</td>
                     <td className="num">{Number(row.amount_paid).toFixed(2)}</td>
                     <td>
-                      <Link className="btn btn-secondary" to={`/print/invoice/${row.id}`} target="_blank">
-                        Print
-                      </Link>
+                      <PrintLink type="sales_invoice" id={row.id} />
                     </td>
                   </tr>
                 ))}

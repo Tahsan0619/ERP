@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 
 type Tax = { id: string; name: string; rate: number }
 type Term = { id: string; name: string; due_days: number }
@@ -10,6 +11,7 @@ type Branch = { id: string; code: string; name: string }
 
 export function OrgMastersPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [taxes, setTaxes] = useState<Tax[]>([])
   const [terms, setTerms] = useState<Term[]>([])
   const [uoms, setUoms] = useState<Uom[]>([])
@@ -51,6 +53,10 @@ export function OrgMastersPage() {
   async function addTax(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('tax_templates').insert({
@@ -68,6 +74,10 @@ export function OrgMastersPage() {
   async function addTerm(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('payment_terms').insert({
@@ -85,6 +95,10 @@ export function OrgMastersPage() {
   async function addUom(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('uoms').insert({
@@ -102,6 +116,10 @@ export function OrgMastersPage() {
   async function addWarehouse(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !branchId) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('warehouses').insert({
@@ -137,7 +155,7 @@ export function OrgMastersPage() {
             <label htmlFor="taxRate">Rate %</label>
             <input id="taxRate" type="number" step="0.01" value={taxRate} onChange={(e) => setTaxRate(e.target.value)} />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             Add tax
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>
@@ -170,7 +188,7 @@ export function OrgMastersPage() {
             <label htmlFor="termDays">Due days</label>
             <input id="termDays" type="number" value={termDays} onChange={(e) => setTermDays(e.target.value)} />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             Add term
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>
@@ -203,7 +221,7 @@ export function OrgMastersPage() {
             <label htmlFor="uomName">Name</label>
             <input id="uomName" value={uomName} onChange={(e) => setUomName(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             Add UOM
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>
@@ -246,7 +264,7 @@ export function OrgMastersPage() {
             <label htmlFor="whName">Name</label>
             <input id="whName" value={whName} onChange={(e) => setWhName(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy || branches.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || branches.length === 0 || !can('admin.settings')} type="submit">
             Add warehouse
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>

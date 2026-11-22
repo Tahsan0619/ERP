@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { errorMessage } from '../lib/errors'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
 import type { Account } from '../types/database'
 
 type Journal = {
@@ -15,12 +19,14 @@ type Journal = {
 
 export function JournalsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [accounts, setAccounts] = useState<Account[]>([])
   const [rows, setRows] = useState<Journal[]>([])
   const [debitAccountId, setDebitAccountId] = useState('')
   const [creditAccountId, setCreditAccountId] = useState('')
   const [amount, setAmount] = useState('0')
   const [remarks, setRemarks] = useState('')
+  const [selectedJournalId, setSelectedJournalId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -37,6 +43,7 @@ export function JournalsPage() {
     setRows(jeRes.data ?? [])
     if (!debitAccountId && accRes.data?.[0]) setDebitAccountId(accRes.data[0].id)
     if (!creditAccountId && accRes.data?.[1]) setCreditAccountId(accRes.data[1].id)
+    if (!selectedJournalId && jeRes.data?.[0]) setSelectedJournalId(jeRes.data[0].id)
   }
 
   useEffect(() => {
@@ -53,6 +60,10 @@ export function JournalsPage() {
     }
     if (debitAccountId === creditAccountId) {
       setError('Debit and credit accounts must differ')
+      return
+    }
+    if (!can('finance.post')) {
+      setError('Missing finance.post permission')
       return
     }
     setBusy(true)
@@ -85,7 +96,7 @@ export function JournalsPage() {
       setRemarks('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post journal')
+      setError(errorMessage(err, 'Failed to post journal'))
     } finally {
       setBusy(false)
     }
@@ -144,7 +155,7 @@ export function JournalsPage() {
             <label htmlFor="remarks">Remarks</label>
             <input id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} />
           </div>
-          <button className="btn btn-primary" disabled={busy || accounts.length < 2} type="submit">
+          <button className="btn btn-primary" disabled={busy || accounts.length < 2 || !can('finance.post')} type="submit">
             {busy ? 'Posting...' : 'Create and post journal'}
           </button>
         </form>
@@ -157,21 +168,26 @@ export function JournalsPage() {
                   <th>Date</th>
                   <th>Status</th>
                   <th>Remarks</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} onClick={() => setSelectedJournalId(row.id)} style={{ cursor: 'pointer' }}>
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.entry_date}</td>
                     <td>
                       <StatusChip status={row.status} />
                     </td>
                     <td>{row.remarks ?? '-'}</td>
+                    <td>
+                      <PrintLink type="journal" id={row.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedJournalId ? <AttachmentsPanel entityType="journal_entry" entityId={selectedJournalId} /> : null}
           </div>
         </div>
       </div>

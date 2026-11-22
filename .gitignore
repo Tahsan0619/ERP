@@ -13,6 +13,9 @@ Desktop.ini
 .env.*
 !.env.example
 supabasecreds.md
+tmp_*.json
+tmp_*.sql
+tmp_*.txt
 
 # Dependencies and build
 node_modules/

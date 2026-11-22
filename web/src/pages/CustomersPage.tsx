@@ -1,10 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import type { Customer } from '../types/database'
 
 export function CustomersPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [rows, setRows] = useState<Customer[]>([])
   const [error, setError] = useState<string | null>(null)
   const [code, setCode] = useState('')
@@ -28,6 +30,10 @@ export function CustomersPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id) return
+    if (!can('admin.settings')) {
+      setError('Missing admin.settings permission')
+      return
+    }
     setBusy(true)
     setError(null)
     const { error: insertError } = await supabase.from('customers').insert({
@@ -71,7 +77,7 @@ export function CustomersPage() {
             <label htmlFor="phone">Phone</label>
             <input id="phone" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('admin.settings')} type="submit">
             {busy ? 'Saving...' : 'Save customer'}
           </button>
         </form>

@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
 import { StatusChip } from '../components/StatusChip'
+import { errorMessage } from '../lib/errors'
 import type { Item } from '../types/database'
 
 type Warehouse = { id: string; code: string; name: string }
@@ -25,6 +27,7 @@ type Adjustment = {
 
 export function StockMovesPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [items, setItems] = useState<Item[]>([])
   const [transfers, setTransfers] = useState<Transfer[]>([])
@@ -70,6 +73,10 @@ export function StockMovesPage() {
   async function onTransfer(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !fromWh || !toWh || !itemId) return
+    if (!can('inventory.post')) {
+      setError('Missing inventory.post permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -98,7 +105,7 @@ export function StockMovesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Transfer failed')
+      setError(errorMessage(err, 'Transfer failed'))
     } finally {
       setBusy(false)
     }
@@ -107,6 +114,10 @@ export function StockMovesPage() {
   async function onAdjust(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !adjWh || !itemId) return
+    if (!can('inventory.post')) {
+      setError('Missing inventory.post permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -136,7 +147,7 @@ export function StockMovesPage() {
       setReason('')
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Adjustment failed')
+      setError(errorMessage(err, 'Adjustment failed'))
     } finally {
       setBusy(false)
     }
@@ -188,7 +199,7 @@ export function StockMovesPage() {
             <label htmlFor="tQty">Qty</label>
             <input id="tQty" type="number" min="0.0001" step="0.0001" value={qty} onChange={(e) => setQty(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy || warehouses.length < 1} type="submit">
+          <button className="btn btn-primary" disabled={busy || warehouses.length < 1 || !can('inventory.post')} type="submit">
             {busy ? 'Posting...' : 'Post transfer'}
           </button>
           <div className="table-wrap" style={{ marginTop: 16 }}>
@@ -247,7 +258,7 @@ export function StockMovesPage() {
             <label htmlFor="reason">Reason</label>
             <input id="reason" value={reason} onChange={(e) => setReason(e.target.value)} />
           </div>
-          <button className="btn btn-primary" disabled={busy} type="submit">
+          <button className="btn btn-primary" disabled={busy || !can('inventory.post')} type="submit">
             {busy ? 'Posting...' : 'Post adjustment'}
           </button>
           <div className="table-wrap" style={{ marginTop: 16 }}>

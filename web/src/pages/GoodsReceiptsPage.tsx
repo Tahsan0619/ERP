@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
+import { errorMessage } from '../lib/errors'
 
 type PO = {
   id: string
@@ -25,6 +29,7 @@ type POItem = { item_id: string; qty: number; received_qty: number; rate: number
 
 export function GoodsReceiptsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [pos, setPos] = useState<PO[]>([])
   const [warehouses, setWarehouses] = useState<Warehouse[]>([])
   const [poItems, setPoItems] = useState<POItem[]>([])
@@ -33,6 +38,7 @@ export function GoodsReceiptsPage() {
   const [warehouseId, setWarehouseId] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedId, setSelectedId] = useState('')
 
   async function load() {
     const [poRes, whRes, grnRes] = await Promise.all([
@@ -51,6 +57,7 @@ export function GoodsReceiptsPage() {
     setPos((poRes.data as unknown as PO[]) ?? [])
     setWarehouses(whRes.data ?? [])
     setRows((grnRes.data as unknown as GRN[]) ?? [])
+    if (grnRes.data?.[0]) setSelectedId((prev) => prev || grnRes.data![0].id)
     if (!poId && poRes.data?.[0]) setPoId(poRes.data[0].id)
     if (!warehouseId && whRes.data?.[0]) setWarehouseId(whRes.data[0].id)
   }
@@ -82,6 +89,10 @@ export function GoodsReceiptsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !poId || !warehouseId) return
+    if (!can('purchase.post')) {
+      setError('Missing purchase.post permission')
+      return
+    }
     const openLines = poItems.filter((l) => Number(l.qty) - Number(l.received_qty) > 0)
     if (openLines.length === 0) {
       setError('No open quantities left on this PO')
@@ -122,7 +133,7 @@ export function GoodsReceiptsPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to post GRN')
+      setError(errorMessage(err, 'Failed to post GRN'))
     } finally {
       setBusy(false)
     }
@@ -180,7 +191,7 @@ export function GoodsReceiptsPage() {
               </tbody>
             </table>
           </div>
-          <button className="btn btn-primary" disabled={busy || pos.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || pos.length === 0 || !can('purchase.post')} type="submit">
             {busy ? 'Posting...' : 'Create and post GRN'}
           </button>
         </form>
@@ -193,21 +204,31 @@ export function GoodsReceiptsPage() {
                   <th>Vendor</th>
                   <th>Date</th>
                   <th>Status</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={row.id === selectedId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedId(row.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.vendors?.name ?? '-'}</td>
                     <td>{row.posting_date}</td>
                     <td>
                       <StatusChip status={row.status} />
                     </td>
+                    <td>
+                      <PrintLink type="goods_receipt" id={row.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedId ? <AttachmentsPanel entityType="goods_receipt" entityId={selectedId} /> : null}
           </div>
         </div>
       </div>

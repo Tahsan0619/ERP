@@ -1,8 +1,13 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
+import { errorMessage } from '../lib/errors'
+import { calcLineAmounts, type TaxTemplate } from '../lib/tax'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
 import type { Customer, Item } from '../types/database'
 
 type Quotation = {
@@ -16,34 +21,42 @@ type Quotation = {
 
 export function QuotationsPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [rows, setRows] = useState<Quotation[]>([])
   const [customers, setCustomers] = useState<Customer[]>([])
   const [items, setItems] = useState<Item[]>([])
+  const [taxes, setTaxes] = useState<TaxTemplate[]>([])
   const [customerId, setCustomerId] = useState('')
   const [itemId, setItemId] = useState('')
+  const [taxId, setTaxId] = useState('')
   const [qty, setQty] = useState('1')
   const [rate, setRate] = useState('0')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedId, setSelectedId] = useState('')
 
   async function load() {
-    const [qRes, cRes, iRes] = await Promise.all([
+    const [qRes, cRes, iRes, taxRes] = await Promise.all([
       supabase
         .from('quotations')
         .select('id, doc_no, status, quotation_date, grand_total, customers:customer_id(name)')
         .order('created_at', { ascending: false }),
       supabase.from('customers').select('*').eq('is_active', true).order('name'),
       supabase.from('items').select('*').eq('is_active', true).order('name'),
+      supabase.from('tax_templates').select('id, name, rate').order('name'),
     ])
     if (qRes.error) setError(qRes.error.message)
     setRows((qRes.data as unknown as Quotation[]) ?? [])
+    if (qRes.data?.[0]) setSelectedId((prev) => prev || qRes.data![0].id)
     setCustomers(cRes.data ?? [])
     setItems(iRes.data ?? [])
+    setTaxes(taxRes.data ?? [])
     if (!customerId && cRes.data?.[0]) setCustomerId(cRes.data[0].id)
     if (!itemId && iRes.data?.[0]) {
       setItemId(iRes.data[0].id)
       setRate(String(iRes.data[0].valuation_rate ?? 0))
     }
+    if (!taxId && taxRes.data?.[0]) setTaxId(taxRes.data[0].id)
   }
 
   useEffect(() => {
@@ -53,12 +66,17 @@ export function QuotationsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !customerId || !itemId) return
+    if (!can('sales.create')) {
+      setError('Missing sales.create permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
       const qtyNum = Number(qty)
       const rateNum = Number(rate)
-      const amount = qtyNum * rateNum
+      const taxRate = Number(taxes.find((t) => t.id === taxId)?.rate ?? 0)
+      const calc = calcLineAmounts(qtyNum, rateNum, taxRate)
       const docNo = await nextDocNo(profile.tenant_id, 'quotation')
       const { data: quote, error: qError } = await supabase
         .from('quotations')
@@ -68,10 +86,10 @@ export function QuotationsPage() {
           status: 'submitted',
           customer_id: customerId,
           quotation_date: new Date().toISOString().slice(0, 10),
-          subtotal: amount,
-          tax_amount: 0,
+          subtotal: calc.subtotal,
+          tax_amount: calc.taxAmount,
           discount_amount: 0,
-          grand_total: amount,
+          grand_total: calc.grandTotal,
           created_by: profile.id,
         })
         .select('id')
@@ -82,12 +100,13 @@ export function QuotationsPage() {
         item_id: itemId,
         qty: qtyNum,
         rate: rateNum,
-        amount,
+        tax_rate: calc.taxRate,
+        amount: calc.subtotal,
       })
       if (lineError) throw lineError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create quotation')
+      setError(errorMessage(err, 'Failed to create quotation'))
     } finally {
       setBusy(false)
     }
@@ -95,6 +114,10 @@ export function QuotationsPage() {
 
   async function convertToOrder(quotationId: string) {
     if (!profile?.tenant_id) return
+    if (!can('sales.create')) {
+      setError('Missing sales.create permission')
+      return
+    }
     setBusy(true)
     setError(null)
     try {
@@ -145,7 +168,7 @@ export function QuotationsPage() {
       if (updError) throw updError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to convert quotation')
+      setError(errorMessage(err, 'Failed to convert quotation'))
     } finally {
       setBusy(false)
     }
@@ -200,7 +223,21 @@ export function QuotationsPage() {
             <label htmlFor="rate">Rate</label>
             <input id="rate" type="number" min="0" step="0.01" value={rate} onChange={(e) => setRate(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy || customers.length === 0 || items.length === 0} type="submit">
+          <div className="field">
+            <label htmlFor="tax">Tax template</label>
+            <select id="tax" value={taxId} onChange={(e) => setTaxId(e.target.value)}>
+              {taxes.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({Number(t.rate).toFixed(2)}%)
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            className="btn btn-primary"
+            disabled={busy || customers.length === 0 || items.length === 0 || !can('sales.create')}
+            type="submit"
+          >
             {busy ? 'Saving...' : 'Create quotation'}
           </button>
         </form>
@@ -219,7 +256,12 @@ export function QuotationsPage() {
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
+                  <tr
+                    key={row.id}
+                    className={row.id === selectedId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedId(row.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{row.doc_no}</td>
                     <td>{row.customers?.name ?? '-'}</td>
                     <td>{row.quotation_date}</td>
@@ -228,8 +270,18 @@ export function QuotationsPage() {
                     </td>
                     <td className="num">{Number(row.grand_total).toFixed(2)}</td>
                     <td>
+                      <PrintLink type="quotation" id={row.id} />
                       {row.status !== 'converted' && row.status !== 'cancelled' ? (
-                        <button className="btn btn-secondary" type="button" disabled={busy} onClick={() => void convertToOrder(row.id)}>
+                        <button
+                          className="btn btn-secondary"
+                          type="button"
+                          disabled={busy || !can('sales.create')}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void convertToOrder(row.id)
+                          }}
+                          style={{ marginLeft: 8 }}
+                        >
                           Convert
                         </button>
                       ) : null}
@@ -238,6 +290,7 @@ export function QuotationsPage() {
                 ))}
               </tbody>
             </table>
+            {selectedId ? <AttachmentsPanel entityType="quotation" entityId={selectedId} /> : null}
           </div>
         </div>
       </div>

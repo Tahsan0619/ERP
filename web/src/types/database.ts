@@ -6,6 +6,8 @@ export type Profile = {
   full_name: string
   email: string
   is_active: boolean
+  customer_id?: string | null
+  vendor_id?: string | null
 }
 
 export type Item = {

@@ -1,8 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
+import { usePermissions } from '../hooks/usePermissions'
 import { nextDocNo } from '../lib/numbering'
+import { errorMessage } from '../lib/errors'
 import { StatusChip } from '../components/StatusChip'
+import { PrintLink } from '../components/PrintLink'
+import { AttachmentsPanel } from '../components/AttachmentsPanel'
 
 type SalesInvoice = { id: string; doc_no: string; customer_id: string; grand_total: number; amount_paid: number; customers?: { name: string } | null }
 type PurchaseInvoice = { id: string; doc_no: string; vendor_id: string; grand_total: number; amount_paid: number; vendors?: { name: string } | null }
@@ -11,6 +15,7 @@ type DebitNote = { id: string; doc_no: string; status: string; debit_date: strin
 
 export function CreditDebitNotesPage() {
   const { profile } = useAuth()
+  const { can } = usePermissions()
   const [salesInvoices, setSalesInvoices] = useState<SalesInvoice[]>([])
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>([])
   const [credits, setCredits] = useState<CreditNote[]>([])
@@ -21,6 +26,8 @@ export function CreditDebitNotesPage() {
   const [debitAmount, setDebitAmount] = useState('0')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [selectedCreditId, setSelectedCreditId] = useState('')
+  const [selectedDebitId, setSelectedDebitId] = useState('')
 
   async function load() {
     const [si, pi, cn, dn] = await Promise.all([
@@ -47,6 +54,8 @@ export function CreditDebitNotesPage() {
     setPurchaseInvoices((pi.data as unknown as PurchaseInvoice[]) ?? [])
     setCredits((cn.data as unknown as CreditNote[]) ?? [])
     setDebits((dn.data as unknown as DebitNote[]) ?? [])
+    if (cn.data?.[0]) setSelectedCreditId((prev) => prev || cn.data![0].id)
+    if (dn.data?.[0]) setSelectedDebitId((prev) => prev || dn.data![0].id)
     if (!salesInvoiceId && si.data?.[0]) {
       setSalesInvoiceId(si.data[0].id)
       setCreditAmount(String(si.data[0].grand_total ?? 0))
@@ -64,6 +73,10 @@ export function CreditDebitNotesPage() {
   async function onCredit(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !salesInvoiceId) return
+    if (!can('sales.post')) {
+      setError('Missing sales.post permission')
+      return
+    }
     const amount = Number(creditAmount)
     if (amount <= 0) return setError('Credit amount must be greater than zero')
     setBusy(true)
@@ -91,7 +104,7 @@ export function CreditDebitNotesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Credit note failed')
+      setError(errorMessage(err, 'Credit note failed'))
     } finally {
       setBusy(false)
     }
@@ -100,6 +113,10 @@ export function CreditDebitNotesPage() {
   async function onDebit(e: FormEvent) {
     e.preventDefault()
     if (!profile?.tenant_id || !purchaseInvoiceId) return
+    if (!can('purchase.post')) {
+      setError('Missing purchase.post permission')
+      return
+    }
     const amount = Number(debitAmount)
     if (amount <= 0) return setError('Debit amount must be greater than zero')
     setBusy(true)
@@ -127,7 +144,7 @@ export function CreditDebitNotesPage() {
       if (postError) throw postError
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Debit note failed')
+      setError(errorMessage(err, 'Debit note failed'))
     } finally {
       setBusy(false)
     }
@@ -168,7 +185,7 @@ export function CreditDebitNotesPage() {
             <label htmlFor="cAmt">Amount</label>
             <input id="cAmt" type="number" min="0.01" step="0.01" value={creditAmount} onChange={(e) => setCreditAmount(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy || salesInvoices.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || salesInvoices.length === 0 || !can('sales.post')} type="submit">
             Post credit note
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>
@@ -179,21 +196,33 @@ export function CreditDebitNotesPage() {
                   <th>Customer</th>
                   <th>Status</th>
                   <th className="num">Amount</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {credits.map((c) => (
-                  <tr key={c.id}>
+                  <tr
+                    key={c.id}
+                    className={c.id === selectedCreditId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedCreditId(c.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{c.doc_no}</td>
                     <td>{c.customers?.name ?? '-'}</td>
                     <td>
                       <StatusChip status={c.status} />
                     </td>
                     <td className="num">{Number(c.grand_total).toFixed(2)}</td>
+                    <td>
+                      <PrintLink type="credit_note" id={c.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedCreditId ? (
+              <AttachmentsPanel entityType="credit_note" entityId={selectedCreditId} />
+            ) : null}
           </div>
         </form>
 
@@ -222,7 +251,7 @@ export function CreditDebitNotesPage() {
             <label htmlFor="dAmt">Amount</label>
             <input id="dAmt" type="number" min="0.01" step="0.01" value={debitAmount} onChange={(e) => setDebitAmount(e.target.value)} required />
           </div>
-          <button className="btn btn-primary" disabled={busy || purchaseInvoices.length === 0} type="submit">
+          <button className="btn btn-primary" disabled={busy || purchaseInvoices.length === 0 || !can('purchase.post')} type="submit">
             Post debit note
           </button>
           <div className="table-wrap" style={{ marginTop: 12 }}>
@@ -233,21 +262,31 @@ export function CreditDebitNotesPage() {
                   <th>Vendor</th>
                   <th>Status</th>
                   <th className="num">Amount</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
                 {debits.map((d) => (
-                  <tr key={d.id}>
+                  <tr
+                    key={d.id}
+                    className={d.id === selectedDebitId ? 'row-selected' : undefined}
+                    onClick={() => setSelectedDebitId(d.id)}
+                    style={{ cursor: 'pointer' }}
+                  >
                     <td className="mono">{d.doc_no}</td>
                     <td>{d.vendors?.name ?? '-'}</td>
                     <td>
                       <StatusChip status={d.status} />
                     </td>
                     <td className="num">{Number(d.grand_total).toFixed(2)}</td>
+                    <td>
+                      <PrintLink type="debit_note" id={d.id} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {selectedDebitId ? <AttachmentsPanel entityType="debit_note" entityId={selectedDebitId} /> : null}
           </div>
         </form>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { usePermissions } from '../hooks/usePermissions'
 
 type Tab = 'ar' | 'ap' | 'sales' | 'purchase' | 'stock' | 'tb' | 'pnl' | 'bs'
 
@@ -33,6 +34,7 @@ function downloadCsv(filename: string, rows: Array<Record<string, unknown>>) {
 }
 
 export function ReportsPage() {
+  const { can } = usePermissions()
   const [tab, setTab] = useState<Tab>('ar')
   const [error, setError] = useState<string | null>(null)
   const [arRows, setArRows] = useState<Array<Record<string, unknown>>>([])
@@ -47,7 +49,7 @@ export function ReportsPage() {
   useEffect(() => {
     async function load() {
       setError(null)
-      const [ar, ap, sales, purchase, stock, accounts, journals] = await Promise.all([
+      const [ar, ap, sales, purchase, stock, accounts, journals, fiscalYears] = await Promise.all([
         supabase
           .from('sales_invoices')
           .select('doc_no, invoice_date, grand_total, amount_paid, customers:customer_id(name)')
@@ -72,6 +74,7 @@ export function ReportsPage() {
           .from('journal_entries')
           .select('id, status, journal_entry_lines(account_id, debit, credit)')
           .eq('status', 'posted'),
+        supabase.from('fiscal_years').select('is_closed'),
       ])
 
       if (ar.error || ap.error || sales.error || purchase.error || stock.error || accounts.error || journals.error) {
@@ -201,6 +204,7 @@ export function ReportsPage() {
       const incomeTotal = tb.filter((r) => r._type === 'income').reduce((s, r) => s + -r._balanceNum, 0)
       const expenseTotal = tb.filter((r) => r._type === 'expense').reduce((s, r) => s + r._balanceNum, 0)
       const retainedEarnings = -incomeTotal + expenseTotal
+      const hasClosedFiscalYear = (fiscalYears.data ?? []).some((fy) => fy.is_closed === true)
 
       const bsBase = tb
         .filter((r) => r._type === 'asset' || r._type === 'liability' || r._type === 'equity')
@@ -211,7 +215,7 @@ export function ReportsPage() {
           amount: r._balanceNum.toFixed(2),
         }))
 
-      if (retainedEarnings !== 0) {
+      if (!hasClosedFiscalYear && retainedEarnings !== 0) {
         bsBase.push({
           code: 'RE',
           account: 'Retained earnings (computed)',
@@ -248,6 +252,14 @@ export function ReportsPage() {
 
   const headers = current[0] ? Object.keys(current[0]) : []
 
+  function onExportCsv() {
+    if (!can('reports.export')) {
+      setError('Missing reports.export permission')
+      return
+    }
+    downloadCsv(`businessos-${tab}.csv`, current)
+  }
+
   return (
     <div>
       <div className="page-header">
@@ -258,8 +270,8 @@ export function ReportsPage() {
         <button
           className="btn btn-secondary"
           type="button"
-          onClick={() => downloadCsv(`businessos-${tab}.csv`, current)}
-          disabled={current.length === 0}
+          onClick={onExportCsv}
+          disabled={current.length === 0 || !can('reports.export')}
         >
           Export CSV
         </button>

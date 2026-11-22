@@ -29,7 +29,12 @@ import { AuditLogPage } from './pages/AuditLogPage'
 import { CreditDebitNotesPage } from './pages/CreditDebitNotesPage'
 import { UsersRolesPage } from './pages/UsersRolesPage'
 import { FiscalYearsPage } from './pages/FiscalYearsPage'
-import { PrintInvoicePage } from './pages/PrintInvoicePage'
+import { PrintDocPage } from './pages/PrintDocPage'
+import { ManufacturingPage } from './pages/ManufacturingPage'
+import { HrPage } from './pages/HrPage'
+import { BankReconPage } from './pages/BankReconPage'
+import { PortalPage } from './pages/PortalPage'
+import { SecurityPage } from './pages/SecurityPage'
 
 export default function App() {
   return (
@@ -41,10 +46,10 @@ export default function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
-            path="/print/invoice/:id"
+            path="/print/:type/:id"
             element={
-              <ProtectedRoute>
-                <PrintInvoicePage />
+              <ProtectedRoute allowWithoutProfile>
+                <PrintDocPage />
               </ProtectedRoute>
             }
           />
@@ -75,7 +80,12 @@ export default function App() {
             <Route path="finance/journals" element={<JournalsPage />} />
             <Route path="finance/cash" element={<ReceiptsPaymentsPage />} />
             <Route path="finance/fiscal" element={<FiscalYearsPage />} />
+            <Route path="finance/bank" element={<BankReconPage />} />
+            <Route path="manufacturing" element={<ManufacturingPage />} />
+            <Route path="hr" element={<HrPage />} />
+            <Route path="portal" element={<PortalPage />} />
             <Route path="admin/users" element={<UsersRolesPage />} />
+            <Route path="security" element={<SecurityPage />} />
             <Route path="reports" element={<ReportsPage />} />
             <Route path="audit" element={<AuditLogPage />} />
             <Route path="settings" element={<SettingsPage />} />

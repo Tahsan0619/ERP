@@ -35,10 +35,21 @@ SQL migrations live in `supabase/migrations/`.
 ### First-run tip
 In Supabase Auth settings, disable "Confirm email" while developing so signup can bootstrap the company tenant immediately. If confirmation stays on, complete company setup after first login.
 
-## What works today (honest scope)
-You can sign up a company, manage basic masters, run sales/purchase documents with stock posting, post simple finance entries, run operational reports with CSV export, manage roles/permissions in-app, and use fiscal year locks for posting dates.
+### Demo Owner account
+- Email: `erp@gmail.com`
+- Password: `erp06190`
+- Roles: Owner + Admin (all permission codes)
+- Seeded masters: sample customer, vendor, items, opening stock
 
-Not claimed as complete: advanced tax calculation on every line, invite/provision of staff from the UI, full permission enforcement on every screen action, native mobile apps, manufacturing, HR/payroll, banking integrations, or customer/vendor portals.
+## What works today (honest scope)
+You can sign up a company, invite users by link (with revoke), manage masters, run sales/purchase with tax on quotations/SO/PO/invoices, post stock and finance documents with permission-gated actions and nav, run reports with CSV export, close fiscal years by wiping P&L into equity account 3000, attach files across major documents, run light manufacturing and basic HR/payroll, reconcile bank lines via amount-checked RPC, use a same-app customer/vendor portal view, and enroll plus challenge TOTP 2FA at login (requires MFA enabled in Supabase Auth).
+
+Still partial / constrained:
+- Portal is same-app read-only party views, not a separate public portal product
+- 2FA depends on Supabase project MFA being turned on
+- Payroll is a simple one-employee net-pay post, not a full statutory payroll suite
+- Manufacturing is BOM + stock moves only (no full WIP costing)
+- Native mobile apps are not built
 
 ## Push sessions
 
@@ -152,10 +163,49 @@ Completed in **20 minutes**.
 - `202611220005_security_numbering_fixes.sql`
 - `202611220006_harden_definer_rpcs.sql`
 
-#### Still open / partial
-- Tax templates exist, but many create forms still post `tax_amount: 0` unless entered elsewhere
-- Permission matrix is editable; not every screen button is gated by permission codes yet
-- No in-app user invite/provision flow (profiles must already exist)
-- Attachments UI is wired primarily on sales invoices
-- Balance sheet retained-earnings line is computed in the report view, not a formal period-close process
-- Manufacturing, HR/payroll, portals, 2FA, bank reconciliation are not built
+---
+
+### Stage 5 push
+Completed in **57 minutes**.
+
+- Started: 7:56 PM, 22 Nov 2026
+- Ended: 8:53 PM, 22 Nov 2026
+
+#### Closed Stage 4 open / partial items
+- Tax templates on quotations, sales orders, purchase orders, and sales/purchase invoices (`tax_amount` / `grand_total` computed; invoice GL splits tax to 2200 / 1400)
+- Permission gating via `usePermissions` on create/post/export actions; AppShell nav filtered by permission codes
+- In-app invite flow: `create_invite` / `accept_invite` / `revoke_invite`, pending invite list on Users and roles
+- Attachments on quotations, orders, deliveries, GRNs, invoices, credit/debit notes, journals, receipts/payments
+- Formal period close: `close_fiscal_year` zeroes P&L into equity 3000 and locks the year; balance sheet stops synthetic RE after a closed year
+- Manufacturing light (BOM + production post), HR basics (employees, attendance, leave, payroll post), bank recon (`reconcile_bank_line`), same-app portal party link, TOTP 2FA enroll + login MFA challenge
+
+#### Reliability and ops hardening
+- Fixed profiles RLS recursion that blocked login after auth (`current_tenant_id` security definer)
+- Clearer stock errors (SKU / warehouse / available qty); delivery pre-checks stock before post
+- Collision-safe `next_doc_number` with series sync
+- Shared `errorMessage` helper so RPC errors surface in the UI
+- Auth profile-load race fixed (no false “Finish company setup” / hung “Loading session”)
+- Demo Owner account seeded for end-to-end use (`erp@gmail.com`)
+- Flow audit script: `scripts/erp-flow-audit.mjs` (22 flows, PASS)
+
+#### UI / design-system alignment
+- Split login layout matching Stitch Operational Clear mockups
+- Grouped sidebar modules + richer topbar (search, warehouse chip, avatar)
+- Executive dashboard KPIs from live data
+
+#### Print / PDF
+- Printable document views for sales/purchase invoices, quotations, SO/PO, deliveries, GRNs, credit/debit notes, receipts/payments, journals
+- Per-row **PDF** actions open print view → browser “Save as PDF”
+
+#### Migrations in this stage
+- `202611220007_remaining_gaps.sql`
+- `202611220008_permissions_close_tax_bank.sql`
+- `202611220009_fix_profiles_rls_recursion.sql`
+- `202611220010_ops_hardening.sql`
+- `202611220011_number_series_sync.sql`
+
+#### Limits still honest
+- Portal is same-app, not a separate public portal product
+- Payroll / manufacturing remain light implementations
+- PDF is print-to-PDF (no server-side PDF binary generator)
+- Native mobile apps are not built
