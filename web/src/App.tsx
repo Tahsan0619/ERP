@@ -13,6 +13,12 @@ import { PurchaseOrdersPage } from './pages/PurchaseOrdersPage'
 import { StockPage } from './pages/StockPage'
 import { AccountsPage } from './pages/AccountsPage'
 import { SettingsPage } from './pages/SettingsPage'
+import { GoodsReceiptsPage } from './pages/GoodsReceiptsPage'
+import { DeliveryNotesPage } from './pages/DeliveryNotesPage'
+import { SalesInvoicesPage } from './pages/SalesInvoicesPage'
+import { PurchaseInvoicesPage } from './pages/PurchaseInvoicesPage'
+import { JournalsPage } from './pages/JournalsPage'
+import { ReceiptsPaymentsPage } from './pages/ReceiptsPaymentsPage'
 
 export default function App() {
   return (
@@ -34,9 +40,15 @@ export default function App() {
             <Route path="masters/customers" element={<CustomersPage />} />
             <Route path="masters/vendors" element={<VendorsPage />} />
             <Route path="sales/orders" element={<SalesOrdersPage />} />
+            <Route path="sales/deliveries" element={<DeliveryNotesPage />} />
+            <Route path="sales/invoices" element={<SalesInvoicesPage />} />
             <Route path="purchase/orders" element={<PurchaseOrdersPage />} />
+            <Route path="purchase/receipts" element={<GoodsReceiptsPage />} />
+            <Route path="purchase/invoices" element={<PurchaseInvoicesPage />} />
             <Route path="inventory/stock" element={<StockPage />} />
             <Route path="finance/accounts" element={<AccountsPage />} />
+            <Route path="finance/journals" element={<JournalsPage />} />
+            <Route path="finance/cash" element={<ReceiptsPaymentsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
